@@ -1226,7 +1226,7 @@
               .join("")}</div></section>`
           : ""
       }
-      <section class="mt"><h2>Alunos <span class="muted">(${alunos.length})</span></h2>
+      ${ts.length && !alunos.length ? "" : `<section class="mt"><h2>Alunos <span class="muted">(${alunos.length})</span></h2>
         ${
           alunos.length
             ? `<div class="cards-aluno">${alunos
@@ -1252,9 +1252,9 @@
                   </div>`;
                 })
                 .join("")}</div>${alunos.length > LIMITE ? `<p class="muted">Mostrando ${LIMITE} de ${alunos.length}. Digite mais do nome para afinar.</p>` : ""}`
-            : `<div class="vazio">Nenhum aluno encontrado para "${esc(termo)}".</div>`
+            : `<div class="vazio">Nenhum aluno ou turma encontrado para "${esc(termo)}".</div>`
         }
-      </section>`;
+      </section>`}`;
   }
 
   function editarJanela(j) {
