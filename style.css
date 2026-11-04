@@ -285,3 +285,7 @@ td.col-modulo { white-space: nowrap; }
 .ficha-modulo .modulo small { color: #c9d6ea; }
 .filtros label.destaque-filtro { color: var(--laranja); }
 .filtros label.destaque-filtro select { border-color: rgba(255, 153, 0, 0.6); }
+.filtros .periodo { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid rgba(255, 153, 0, 0.6); border-radius: 10px; font-size: 12px; font-weight: 600; color: var(--laranja); }
+.filtros .periodo input { padding: 6px 8px; }
+.filtros .periodo span:nth-of-type(2) { color: var(--muted); }
+.filtros .periodo .link { padding: 0; font-size: 12px; }

@@ -588,10 +588,18 @@
       situacao: q.get("situacao") || "",
       arquivados: q.get("arquivados") === "1",
       modulo: q.get("modulo") || "",
+      modDe: q.get("modDe") || "",
+      modAte: q.get("modAte") || "",
     };
     const h = hojeISO();
     const lista = tramites.filter((t) => {
       if (!f.arquivados && t.arquivado) return false;
+      // Intervalo aberto de datas do próximo módulo (De / Até, qualquer um dos dois pode ficar vazio).
+      if (f.modDe || f.modAte) {
+        if (t.modulo_finalizado || !t.prox_modulo) return false;
+        if (f.modDe && t.prox_modulo < f.modDe) return false;
+        if (f.modAte && t.prox_modulo > f.modAte) return false;
+      }
       if (f.modulo) {
         const tem = !t.modulo_finalizado && t.prox_modulo;
         if (f.modulo === "sem" && tem) return false;
@@ -661,6 +669,12 @@
           ["", "Todos"], ["7", "Próximos 7 dias"], ["15", "Próximos 15 dias"], ["30", "Próximos 30 dias"], ["60", "Próximos 60 dias"],
           ["passado", "Data já passou"], ["sem", "Sem data"],
         ].map(([v, r]) => `<option value="${v}" ${v === (q.get("modulo") || "") ? "selected" : ""}>${r}</option>`).join("")}</select></label>
+        <div class="periodo"><span>Módulo entre</span>
+          <input type="date" name="modDe" value="${esc(q.get("modDe") || "")}" title="De" aria-label="Próximo módulo de">
+          <span>e</span>
+          <input type="date" name="modAte" value="${esc(q.get("modAte") || "")}" title="Até" aria-label="Próximo módulo até">
+          ${q.get("modDe") || q.get("modAte") ? `<button type="button" class="link" id="limparPeriodo">limpar</button>` : ""}
+        </div>
         <label>Ordenar por<select name="ordem"><option value="">Próximo módulo</option><option value="nome" ${q.get("ordem") === "nome" ? "selected" : ""}>Nome</option></select></label>
         ${sel("grupo", valores("grupo"), q.get("grupo"), "Turma")}
         ${sel("pais", valores("pais", "Sem país"), q.get("pais"), "País")}
@@ -764,10 +778,17 @@
     desenharLote();
 
     const f = $("#fFiltros");
-    const aplicar = () => {
+    const aplicar = (mudou = "") => {
       const d = new FormData(f);
       const p = {};
       for (const [k, v] of d) if (v) p[k] = v;
+      // Período aberto e atalho (7/15/30 dias…) não se misturam: vale o último que a pessoa mexeu.
+      if (mudou === "modDe" || mudou === "modAte") delete p.modulo;
+      if (mudou === "modulo") {
+        delete p.modDe;
+        delete p.modAte;
+      }
+      if (p.modDe && p.modAte && p.modDe > p.modAte) [p.modDe, p.modAte] = [p.modAte, p.modDe];
       if (p.etapa && p.doc && ETAPA[p.etapa]?.doc !== p.doc) delete p.etapa;
       if (p.situacao && !p.etapa && !p.doc) delete p.situacao;
       history.replaceState(null, "", linkAlunos(p));
@@ -779,7 +800,12 @@
         b.setSelectionRange(b.value.length, b.value.length);
       }
     };
-    f.addEventListener("change", (e) => e.target.name !== "busca" && aplicar());
+    f.addEventListener("change", (e) => e.target.name !== "busca" && aplicar(e.target.name));
+    $("#limparPeriodo")?.addEventListener("click", () => {
+      f.modDe.value = "";
+      f.modAte.value = "";
+      aplicar("modDe");
+    });
     let tb;
     f.busca.addEventListener("input", () => {
       clearTimeout(tb);
