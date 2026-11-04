@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Tramitação CS · UniCPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <header class="topbar" id="topo" hidden>
+    <a class="brand" href="#/">
+      <span class="brand-mark">U</span>
+      <span><b>Tramitação CS</b><small>CPF · RNM · CRO</small></span>
+    </a>
+    <nav id="menu">
+      <a href="#/" data-nav="painel">Painel</a>
+      <a href="#/alunos" data-nav="alunos">Alunos</a>
+      <a href="#/turmas" data-nav="turmas">Turmas</a>
+      <a href="#/agenda" data-nav="agenda">Agenda</a>
+      <a href="#/atualizacoes" data-nav="atualizacoes">Atualizações</a>
+      <div id="conta"></div>
+    </nav>
+  </header>
+
+  <main id="app"><div class="carregando">Carregando…</div></main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
