@@ -865,7 +865,8 @@
   }
 
   function subtituloFicha(t) {
-    return `${esc(t.grupo || "Sem turma")} · ${esc(t.pais || "Sem país")}${t.arquivado ? " · <b>Arquivado</b>" : ""} · atualizado ${dataHora(t.atualizado_em)}${t.atualizado_por ? " por " + esc(t.atualizado_por) : ""}`;
+    const quem = t.atualizado_por === "importacao" ? "importado da planilha" : t.atualizado_por ? "por " + esc(t.atualizado_por) : "";
+    return `${esc(t.grupo || "Sem turma")} · ${esc(t.pais || "Sem país")}${t.arquivado ? " · <b>Arquivado</b>" : ""} · atualizado ${dataHora(t.atualizado_em)} ${quem}`;
   }
 
   function atualizarCabecalhosDoc(m, t) {
