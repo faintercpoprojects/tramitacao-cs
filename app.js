@@ -245,12 +245,16 @@
     await carregarUsuario(s.session);
     if (/access_token|error_description/.test(location.hash)) history.replaceState(null, "", location.pathname + "#/");
     if (erroLink) alert("Esse link não vale mais (expirou ou já foi usado). Peça um link novo ao administrador.");
-    sb.auth.onAuthStateChange(async (evento, session) => {
+    // Nunca chamar o Supabase direto dentro deste aviso: a biblioteca está com o "cadeado" da sessão
+    // e tudo trava (em todas as abas). Por isso o trabalho roda logo depois, com setTimeout.
+    sb.auth.onAuthStateChange((evento, session) => {
       if (!["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED"].includes(evento)) return;
-      const antes = usuario?.id;
-      await carregarUsuario(session);
-      if (antes !== usuario?.id) entrouOuSaiu();
-      else desenharConta();
+      setTimeout(async () => {
+        const antes = usuario?.id;
+        await carregarUsuario(session);
+        if (antes !== usuario?.id) entrouOuSaiu();
+        else desenharConta();
+      }, 0);
     });
     await entrouOuSaiu();
     if (tipoLink && usuario) definirSenha(tipoLink === "recovery" ? "Crie uma nova senha" : "Bem-vindo! Crie sua senha", true);
