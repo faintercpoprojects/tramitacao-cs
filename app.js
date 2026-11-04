@@ -109,14 +109,14 @@
 
   // Campos gerais da ficha do aluno: [campo, rótulo, tipo, opções]
   const CAMPOS_GERAIS = [
+    ["prox_modulo", "Próximo módulo", "data"],
+    ["modulo_finalizado", "Módulos finalizados", "simnao"],
     ["status_geral", "Status geral", "lista", STATUS_GERAL],
     ["pagamento", "Pagamento", "lista", PAGAMENTO],
     ["agendar", "Agendar?", "lista", AGENDAR],
     ["visa", "Visto", "lista", VISA],
     ["grupo", "Turma", "texto"],
     ["lote", "Grupo (nº)", "numero"],
-    ["prox_modulo", "Próximo módulo", "data"],
-    ["modulo_finalizado", "Módulos finalizados", "simnao"],
     ["data_renovacao", "Data de renovação", "data"],
     ["renovacao_status", "Renovação", "lista", ["OK", "Finalizado"]],
     ["pais", "País", "texto"],
@@ -425,10 +425,55 @@
   const linkAlunos = (filtros) => "#/alunos?" + new URLSearchParams(filtros).toString();
 
   // ---------- painel ----------
+  // ---------- próximo módulo (prioridade de visualização) ----------
+  const hojeISO = () => hoje().toISOString().slice(0, 10);
+  // Cor pela urgência: até 7 dias vermelho, até 14 laranja, até 30 amarelo-claro, depois menta.
+  function corModulo(d) {
+    return d < 0 ? "c-cinza" : d <= 7 ? "c-vermelho" : d <= 14 ? "c-laranja" : d <= 30 ? "c-creme" : "c-menta";
+  }
+  const quandoTxt = (d) => (d === 0 ? "hoje" : d === 1 ? "amanhã" : d > 0 ? `em ${d} dias` : `há ${-d} dias`);
+  function badgeModulo(t, completo = true) {
+    if (t.modulo_finalizado) return `<span class="tag c-verde">Finalizado</span>`;
+    if (!t.prox_modulo) return `<span class="muted">—</span>`;
+    const d = dias(t.prox_modulo);
+    return `<span class="modulo"><span class="tag ${corModulo(d)}">${dataBR(t.prox_modulo)}</span>${completo ? `<small>${quandoTxt(d)}</small>` : ""}</span>`;
+  }
+  // Ordem: módulos de hoje em diante (mais perto primeiro) → sem data → já passados → finalizados.
+  function compararModulo(a, b) {
+    const h = hojeISO();
+    const grupo = (t) => (t.modulo_finalizado ? 3 : !t.prox_modulo ? 1 : t.prox_modulo < h ? 2 : 0);
+    const ga = grupo(a);
+    const gb = grupo(b);
+    if (ga !== gb) return ga - gb;
+    if (ga === 0) return a.prox_modulo.localeCompare(b.prox_modulo) || a.nome.localeCompare(b.nome, "pt");
+    if (ga === 2) return b.prox_modulo.localeCompare(a.prox_modulo) || a.nome.localeCompare(b.nome, "pt");
+    return a.nome.localeCompare(b.nome, "pt");
+  }
+
   function painel() {
     const lista = ativos();
     const exec = lista.filter((t) => t.status_geral === "Executando");
     const conta = (arr, f) => arr.filter(f).length;
+
+    // Próximos módulos (30 dias): agrupa por data + turma, com o que ainda falta de cada documento.
+    const h0 = hojeISO();
+    const emBreve = lista.filter((t) => !t.modulo_finalizado && t.prox_modulo && t.prox_modulo >= h0 && dias(t.prox_modulo) <= 30);
+    const blocos = {};
+    for (const t of emBreve) {
+      const k = t.prox_modulo + "|" + (t.grupo || "Sem turma");
+      const b = (blocos[k] = blocos[k] || { data: t.prox_modulo, grupo: t.grupo || "Sem turma", n: 0, exec: 0, cpf: 0, rnm: 0, cro: 0 });
+      b.n++;
+      if (t.status_geral === "Executando") {
+        b.exec++;
+        for (const d of ["cpf", "rnm", "cro"]) if (!progresso(t, d).completo) b[d]++;
+      }
+    }
+    const proxModulos = Object.values(blocos).sort((a, b) => a.data.localeCompare(b.data) || a.grupo.localeCompare(b.grupo));
+    const em7 = emBreve.filter((t) => dias(t.prox_modulo) <= 7).length;
+    const faltaTxt = (n, total, grupo, doc) =>
+      total === 0 ? `<span class="muted">—</span>`
+      : n === 0 ? `<span class="tag c-menta">ok</span>`
+      : `<a class="tag c-vermelho" href="${linkAlunos({ grupo, status: "Executando", doc, situacao: "incompleto" })}">${n}</a>`;
     const docsCompletos = Object.keys(DOCS).map((d) => ({ d, n: conta(exec, (t) => progresso(t, d).completo) }));
 
     // Gargalos: etapas não concluídas entre os alunos em execução
@@ -450,6 +495,25 @@
 
     app.innerHTML = `
       <section class="cabeca"><h1>Painel</h1><p class="muted">${lista.length} trâmites · ${new Set(lista.map((t) => t.aluno_chave)).size} alunos · ${new Set(lista.map((t) => t.grupo).filter(Boolean)).size} turmas</p></section>
+      <section class="cartao destaque">
+        <div class="destaque-topo">
+          <div><h2>Próximos módulos</h2><p class="muted">Turmas com módulo nos próximos 30 dias e quantos alunos em execução ainda têm documento pendente.</p></div>
+          <div class="destaque-num"><a href="${linkAlunos({ modulo: "7" })}"><b>${em7}</b><span>alunos com módulo<br>nos próximos 7 dias</span></a>
+          <a href="${linkAlunos({ modulo: "30" })}"><b>${emBreve.length}</b><span>alunos com módulo<br>nos próximos 30 dias</span></a></div>
+        </div>
+        ${
+          proxModulos.length
+            ? `<div class="tabela-wrap"><table class="modulos"><thead><tr><th>Próximo módulo</th><th>Turma</th><th>Alunos</th><th>Em execução</th><th>CPF pendente</th><th>RNM pendente</th><th>CRO pendente</th></tr></thead><tbody>${proxModulos
+                .map((b) => {
+                  const d = dias(b.data);
+                  return `<tr><td><span class="modulo"><span class="tag ${corModulo(d)}">${dataBR(b.data)}</span><small>${quandoTxt(d)}</small></span></td>
+                  <td><a class="nome" href="${linkAlunos({ grupo: b.grupo })}">${esc(b.grupo)}</a></td><td>${b.n}</td><td>${b.exec}</td>
+                  <td>${faltaTxt(b.cpf, b.exec, b.grupo, "cpf")}</td><td>${faltaTxt(b.rnm, b.exec, b.grupo, "rnm")}</td><td>${faltaTxt(b.cro, b.exec, b.grupo, "cro")}</td></tr>`;
+                })
+                .join("")}</tbody></table></div>`
+            : `<p class="muted">Nenhum módulo nos próximos 30 dias.</p>`
+        }
+      </section>
       <section class="kpis">
         <a class="kpi" href="${linkAlunos({ status: "Executando" })}"><b>${exec.length}</b><span>Em execução</span></a>
         <a class="kpi" href="${linkAlunos({ status: "Lead" })}"><b>${conta(lista, (t) => t.status_geral === "Lead")}</b><span>Leads</span></a>
@@ -523,9 +587,17 @@
       etapa: q.get("etapa") || "",
       situacao: q.get("situacao") || "",
       arquivados: q.get("arquivados") === "1",
+      modulo: q.get("modulo") || "",
     };
-    return tramites.filter((t) => {
+    const h = hojeISO();
+    const lista = tramites.filter((t) => {
       if (!f.arquivados && t.arquivado) return false;
+      if (f.modulo) {
+        const tem = !t.modulo_finalizado && t.prox_modulo;
+        if (f.modulo === "sem" && tem) return false;
+        if (f.modulo === "passado" && !(tem && t.prox_modulo < h)) return false;
+        if (/^\d+$/.test(f.modulo) && !(tem && t.prox_modulo >= h && dias(t.prox_modulo) <= Number(f.modulo))) return false;
+      }
       if (f.grupo && t.grupo !== f.grupo) return false;
       if (f.pais && (t.pais || "Sem país") !== f.pais) return false;
       if (f.status && (t.status_geral || "Sem status") !== f.status) return false;
@@ -547,6 +619,8 @@
       }
       return true;
     });
+    // Padrão: quem tem módulo mais perto aparece primeiro.
+    return q.get("ordem") === "nome" ? lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt")) : lista.sort(compararModulo);
   }
 
   function chipDoc(t, d) {
@@ -583,6 +657,11 @@
       </section>
       <form class="filtros" id="fFiltros">
         <label class="busca">Buscar<input name="busca" type="search" value="${esc(q.get("busca") || "")}" placeholder="Nome, CPF, protocolo, telefone…"></label>
+        <label class="destaque-filtro">Próximo módulo<select name="modulo">${[
+          ["", "Todos"], ["7", "Próximos 7 dias"], ["15", "Próximos 15 dias"], ["30", "Próximos 30 dias"], ["60", "Próximos 60 dias"],
+          ["passado", "Data já passou"], ["sem", "Sem data"],
+        ].map(([v, r]) => `<option value="${v}" ${v === (q.get("modulo") || "") ? "selected" : ""}>${r}</option>`).join("")}</select></label>
+        <label>Ordenar por<select name="ordem"><option value="">Próximo módulo</option><option value="nome" ${q.get("ordem") === "nome" ? "selected" : ""}>Nome</option></select></label>
         ${sel("grupo", valores("grupo"), q.get("grupo"), "Turma")}
         ${sel("pais", valores("pais", "Sem país"), q.get("pais"), "País")}
         ${sel("status", valores("status_geral", "Sem status"), q.get("status"), "Status geral")}
@@ -598,7 +677,7 @@
       </form>
       <div class="lote" id="lote" hidden></div>
       <div class="tabela-wrap"><table class="alunos">
-        <thead><tr>${podeEditar() ? `<th><input type="checkbox" id="selTodos" title="Selecionar os que aparecem"></th>` : ""}<th>Aluno</th><th>Turma</th><th>País</th><th>Status</th><th>Pagamento</th><th>Documentos</th>${etapaSel ? `<th>${esc(ROTULO[etapaSel])}</th>` : ""}<th>Atualizado</th></tr></thead>
+        <thead><tr>${podeEditar() ? `<th><input type="checkbox" id="selTodos" title="Selecionar os que aparecem"></th>` : ""}<th>Aluno</th><th class="col-modulo">Próximo módulo</th><th>Turma</th><th>País</th><th>Status</th><th>Pagamento</th><th>Documentos</th>${etapaSel ? `<th>${esc(ROTULO[etapaSel])}</th>` : ""}<th>Atualizado</th></tr></thead>
         <tbody id="corpo"></tbody>
       </table></div>
       <div class="mais" id="mais"></div>`;
@@ -612,6 +691,7 @@
             (t) => `<tr data-id="${t.id}" class="${t.arquivado ? "arquivado" : ""}">
           ${podeEditar() ? `<td><input type="checkbox" data-sel="${t.id}" ${selecionados.has(t.id) ? "checked" : ""}></td>` : ""}
           <td><a href="#/aluno/${t.id}" class="nome">${esc(t.nome)}</a>${t.observacoes ? ` <span class="obs" title="${esc(t.observacoes)}">●</span>` : ""}</td>
+          <td class="col-modulo">${badgeModulo(t)}</td>
           <td>${esc(t.grupo || "")}</td>
           <td>${esc(t.pais || "")}</td>
           <td>${t.status_geral ? `<span class="tag ${classeStatus(t.status_geral)}">${esc(t.status_geral)}</span>` : ""}</td>
@@ -621,7 +701,7 @@
           <td class="muted pequeno" title="${esc(t.atualizado_por || "")}">${dataHora(t.atualizado_em)}</td>
         </tr>`
           )
-          .join("") || `<tr><td colspan="9" class="vazio">Nenhum aluno com esses filtros.</td></tr>`;
+          .join("") || `<tr><td colspan="11" class="vazio">Nenhum aluno com esses filtros.</td></tr>`;
       $("#mais").innerHTML = res.length > mostrar ? `<button class="btn-sec" id="btnMais">Mostrar mais (${res.length - mostrar} restantes)</button>` : "";
       $("#btnMais")?.addEventListener("click", () => {
         mostrar += POR_PAGINA * 3;
@@ -768,6 +848,7 @@
         <div>
           ${ed ? `<input class="nome-grande" data-campo="nome" value="${esc(t.nome)}" maxlength="200">` : `<h2>${esc(t.nome)}</h2>`}
           <p class="muted" id="fichaSub">${subtituloFicha(t)}</p>
+          <p class="ficha-modulo" id="fichaModulo">Próximo módulo: ${badgeModulo(t)}</p>
         </div>
         <button class="fechar" data-fechar aria-label="Fechar">×</button>
       </header>
@@ -872,6 +953,8 @@
   function atualizarCabecalhosDoc(m, t) {
     const sub = $("#fichaSub", m.closest(".modal-fundo") || document);
     if (sub) sub.innerHTML = subtituloFicha(t);
+    const mod = $("#fichaModulo", m.closest(".modal-fundo") || document);
+    if (mod) mod.innerHTML = "Próximo módulo: " + badgeModulo(t);
     $$(".bloco-doc", m).forEach((b, i) => {
       const d = Object.keys(DOCS)[i];
       const p = progresso(t, d);
@@ -1063,7 +1146,7 @@
     const prontos = lista
       .filter((t) => t.status_geral === "Executando" && FEITO.has(t.rnm_protocolo) && !FEITO.has(t.rnm_agendamiento))
       .map((t) => ({ t, j: janelaDe(t.grupo) }))
-      .sort((a, b) => (a.j?.janela_inicio || "9").localeCompare(b.j?.janela_inicio || "9") || a.t.nome.localeCompare(b.t.nome));
+      .sort((a, b) => compararModulo(a.t, b.t));
     const renov = lista.filter((t) => t.data_renovacao && t.renovacao_status !== "OK" && t.renovacao_status !== "Finalizado").sort((a, b) => a.data_renovacao.localeCompare(b.data_renovacao));
     const ed = podeEditar();
     app.innerHTML = `
@@ -1072,16 +1155,16 @@
         <h2>Prontos para agendar a Polícia Federal (RNM)</h2>
         <p class="muted">Em execução, com protocolo do RNM feito e agendamento ainda não feito (substitui a aba "Agendamentos da semana").</p>
         <div class="tabela-wrap"><table>
-          <thead><tr><th>Aluno</th><th>Turma</th><th>Protocolo</th><th>Nascimento</th><th>Janela da turma</th><th>Visto</th><th>Agendamento</th></tr></thead>
+          <thead><tr><th class="col-modulo">Próximo módulo</th><th>Aluno</th><th>Turma</th><th>Protocolo</th><th>Nascimento</th><th>Janela da turma</th><th>Visto</th><th>Agendamento</th></tr></thead>
           <tbody>${
             prontos
               .map(
-                ({ t, j }) => `<tr><td><a href="#/aluno/${t.id}">${esc(t.nome)}</a></td><td>${esc(t.grupo || "")}</td><td class="mono">${esc(t.rnm_numero_protocolo || "—")}</td>
+                ({ t, j }) => `<tr><td class="col-modulo">${badgeModulo(t)}</td><td><a href="#/aluno/${t.id}">${esc(t.nome)}</a></td><td>${esc(t.grupo || "")}</td><td class="mono">${esc(t.rnm_numero_protocolo || "—")}</td>
                 <td>${dataBR(t.nascimento)}</td><td>${j ? `${dataBR(j.janela_inicio)} a ${dataBR(j.janela_fim)}` : `<span class="muted">sem janela</span>`}</td>
                 <td>${esc(t.visa || "")}</td>
                 <td>${ed ? `<select class="st ${classeStatus(t.rnm_agendamiento)}" data-agenda="${t.id}">${opcoes(STATUS_ETAPA, t.rnm_agendamiento)}</select>` : esc(t.rnm_agendamiento || "")}</td></tr>`
               )
-              .join("") || `<tr><td colspan="7" class="vazio">Ninguém aguardando agendamento.</td></tr>`
+              .join("") || `<tr><td colspan="8" class="vazio">Ninguém aguardando agendamento.</td></tr>`
           }</tbody>
         </table></div>
       </section>
