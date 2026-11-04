@@ -257,7 +257,8 @@
           }
         }
         clearTimeout(ouvirMudancas.t);
-        ouvirMudancas.t = setTimeout(() => !$(".modal-fundo") && rota(true), 600);
+        // Não redesenha enquanto alguém digita (busca, filtros) nem com janela aberta.
+        ouvirMudancas.t = setTimeout(() => !$(".modal-fundo") && !document.activeElement?.matches("input, textarea, select") && rota(true), 600);
       })
       .subscribe();
   }
@@ -414,6 +415,7 @@
     if (pag === "painel") painel();
     else if (pag === "alunos") listaAlunos(q, silencioso);
     else if (pag === "turmas") paginaTurmas();
+    else if (pag === "pesquisa") paginaPesquisa(q);
     else if (pag === "agenda") paginaAgenda();
     else if (pag === "atualizacoes") paginaAtualizacoes();
     else if (pag === "equipe") paginaEquipe();
@@ -422,6 +424,12 @@
     else window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", () => rota());
+  // Atalho: tecla "/" abre a pesquisa de qualquer tela.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || !usuario || e.ctrlKey || e.metaKey || document.activeElement?.matches("input, textarea, select") || $(".modal-fundo")) return;
+    e.preventDefault();
+    location.hash = "#/pesquisa";
+  });
   const linkAlunos = (filtros) => "#/alunos?" + new URLSearchParams(filtros).toString();
 
   // ---------- painel ----------
@@ -1071,27 +1079,38 @@
   }
 
   // ---------- turmas ----------
-  function paginaTurmas() {
+  // Resumo por turma (usado em Turmas e em Pesquisar)
+  function resumoTurmas() {
     const g = {};
+    const h = hojeISO();
     for (const t of ativos()) {
       if (!t.grupo) continue;
-      const x = (g[t.grupo] = g[t.grupo] || { grupo: t.grupo, n: 0, exec: 0, cpf: 0, rnm: 0, cro: 0, prox: null });
+      const x = (g[t.grupo] = g[t.grupo] || { grupo: t.grupo, n: 0, exec: 0, cpf: 0, rnm: 0, cro: 0, prox: null, paises: {} });
       x.n++;
       if (t.status_geral === "Executando") x.exec++;
       for (const d of ["cpf", "rnm", "cro"]) if (progresso(t, d).completo) x[d]++;
-      if (t.prox_modulo && t.prox_modulo >= hoje().toISOString().slice(0, 10) && (!x.prox || t.prox_modulo < x.prox)) x.prox = t.prox_modulo;
+      if (t.prox_modulo && !t.modulo_finalizado && t.prox_modulo >= h && (!x.prox || t.prox_modulo < x.prox)) x.prox = t.prox_modulo;
+      if (t.pais) x.paises[t.pais] = (x.paises[t.pais] || 0) + 1;
     }
-    const lista = Object.values(g).sort((a, b) => (a.prox || "9").localeCompare(b.prox || "9") || a.grupo.localeCompare(b.grupo));
-    const barra = (a, n) => `<div class="mini-barra" title="${a} de ${n}"><i style="width:${pct(a, n)}%"></i><span>${pct(a, n)}%</span></div>`;
+    return Object.values(g).sort((a, b) => (a.prox || "9").localeCompare(b.prox || "9") || a.grupo.localeCompare(b.grupo));
+  }
+  const barraPct = (a, n) => `<div class="mini-barra" title="${a} de ${n}"><i style="width:${pct(a, n)}%"></i><span>${pct(a, n)}%</span></div>`;
+  const moduloTurma = (x) => (x.prox ? `<span class="modulo"><span class="tag ${corModulo(dias(x.prox))}">${dataBR(x.prox)}</span><small>${quandoTxt(dias(x.prox))}</small></span>` : `<span class="muted">—</span>`);
+  const normBusca = (s) => semAcento(s).replace(/\s+/g, " ").trim();
+
+  function paginaTurmas() {
+    const lista = resumoTurmas();
+    const barra = barraPct;
     const ed = podeEditar();
     app.innerHTML = `
-      <section class="cabeca"><h1>Turmas</h1><p class="muted">${lista.length} turmas com alunos ativos. Ordenadas pelo próximo módulo.</p></section>
+      <section class="cabeca linha"><div><h1>Turmas</h1><p class="muted" id="contTurmas">${lista.length} turmas com alunos ativos. Ordenadas pelo próximo módulo.</p></div>
+        <label class="busca-turma">Buscar turma<input type="search" id="buscaTurma" placeholder="Ex.: ORTOT62, endo, 55…" autocomplete="off"></label></section>
       <div class="tabela-wrap"><table class="turmas">
-        <thead><tr><th>Turma</th><th>Alunos</th><th>Em execução</th><th>Próximo módulo</th><th>CPF</th><th>RNM</th><th>CRO</th></tr></thead>
+        <thead><tr><th>Turma</th><th>Alunos</th><th>Em execução</th><th class="col-modulo">Próximo módulo</th><th>CPF</th><th>RNM</th><th>CRO</th></tr></thead>
         <tbody>${lista
           .map(
-            (x) => `<tr><td><a href="${linkAlunos({ grupo: x.grupo })}"><b>${esc(x.grupo)}</b></a></td><td>${x.n}</td><td>${x.exec}</td>
-            <td>${x.prox ? dataBR(x.prox) + ` <span class="muted pequeno">(${dias(x.prox)} dias)</span>` : "—"}</td>
+            (x) => `<tr data-busca="${esc(x.grupo.toLowerCase())}"><td><a href="${linkAlunos({ grupo: x.grupo })}"><b>${esc(x.grupo)}</b></a></td><td>${x.n}</td><td>${x.exec}</td>
+            <td class="col-modulo">${moduloTurma(x)}</td>
             <td>${barra(x.cpf, x.n)}</td><td>${barra(x.rnm, x.n)}</td><td>${barra(x.cro, x.n)}</td></tr>`
           )
           .join("")}</tbody>
@@ -1106,7 +1125,7 @@
             .slice()
             .sort((a, b) => (b.janela_inicio || "").localeCompare(a.janela_inicio || ""))
             .map(
-              (j) => `<tr class="${(j.janela_fim || j.janela_inicio || "") < hoje().toISOString().slice(0, 10) ? "passado" : ""}"><td><a href="${linkAlunos({ grupo: j.grupo })}">${esc(j.grupo)}</a></td>
+              (j) => `<tr data-busca="${esc(j.grupo.toLowerCase())}" class="${(j.janela_fim || j.janela_inicio || "") < hoje().toISOString().slice(0, 10) ? "passado" : ""}"><td><a href="${linkAlunos({ grupo: j.grupo })}">${esc(j.grupo)}</a></td>
               <td>${dataBR(j.janela_inicio)} a ${dataBR(j.janela_fim)}</td><td>${dataBR(j.agendar_a_partir)}</td>
               <td>${j.agendados ?? "—"}${j.total ? " / " + j.total : ""}</td><td>${j.semanas}</td><td>${esc(j.observacoes || "")}</td>
               ${ed ? `<td><button class="link" data-janela="${j.id}">Editar</button></td>` : ""}</tr>`
@@ -1116,6 +1135,126 @@
       </table></div>`;
     $("#btnJanela")?.addEventListener("click", () => editarJanela(null));
     $$("[data-janela]").forEach((b) => b.addEventListener("click", () => editarJanela(turmas.find((j) => j.id === b.dataset.janela))));
+    // Busca de turma: filtra as duas tabelas na hora (sem recarregar).
+    $("#buscaTurma").addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase().replace(/\s+/g, "");
+      let n = 0;
+      $$("table.turmas tbody tr[data-busca]").forEach((tr) => {
+        const ok = !q || tr.dataset.busca.includes(q);
+        tr.hidden = !ok;
+        if (ok) n++;
+      });
+      $$("table.janelas tbody tr[data-busca]").forEach((tr) => (tr.hidden = !!q && !tr.dataset.busca.includes(q)));
+      $("#contTurmas").textContent = q ? `${n} ${n === 1 ? "turma encontrada" : "turmas encontradas"} para "${e.target.value.trim()}".` : `${lista.length} turmas com alunos ativos. Ordenadas pelo próximo módulo.`;
+    });
+  }
+
+  // ---------- pesquisar (turmas e alunos) ----------
+  function paginaPesquisa(q) {
+    const termo = q.get("q") || "";
+    app.innerHTML = `
+      <section class="pesquisa-topo">
+        <h1>Pesquisar</h1>
+        <p class="muted">Procure um aluno (nome, CPF, protocolo do RNM, telefone) ou uma turma (ex.: ORTOT62).</p>
+        <div class="pesquisa-caixa">
+          <input type="search" id="campoPesquisa" value="${esc(termo)}" placeholder="Digite o nome do aluno, CPF, protocolo ou turma…" autocomplete="off" spellcheck="false">
+        </div>
+      </section>
+      <div id="resultados"></div>`;
+    const campo = $("#campoPesquisa");
+    campo.focus();
+    campo.setSelectionRange(campo.value.length, campo.value.length);
+    let t;
+    campo.addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const v = campo.value.trim();
+        const nova = "#/pesquisa" + (v ? "?q=" + encodeURIComponent(v) : "");
+        history.replaceState(null, "", nova);
+        ultimaRota = nova;
+        resultadosPesquisa(v);
+      }, 200);
+    });
+    resultadosPesquisa(termo);
+  }
+
+  function resultadosPesquisa(termo) {
+    const el = $("#resultados");
+    const busca = normBusca(termo);
+    if (busca.length < 2) {
+      el.innerHTML = `<div class="vazio">Digite pelo menos 2 letras ou números.</div>`;
+      return;
+    }
+    const digitos = busca.replace(/\D/g, "");
+    const semEspaco = busca.replace(/\s/g, "");
+
+    // Turmas
+    const ts = resumoTurmas().filter((x) => x.grupo.toLowerCase().includes(semEspaco));
+
+    // Alunos (agrupados: o mesmo aluno pode estar em várias turmas)
+    const palavras = busca.split(" ").filter(Boolean);
+    const achados = tramites.filter((t) => {
+      const nome = normBusca(t.nome);
+      if (palavras.every((p) => nome.includes(p))) return true;
+      if (digitos.length >= 4) {
+        const nums = [t.cpf, t.rnm_numero_protocolo, t.telefone].map((x) => String(x || "").replace(/\D/g, "")).join("|");
+        if (nums.includes(digitos)) return true;
+      }
+      if (t.rnm_numero && t.rnm_numero.toLowerCase().includes(semEspaco)) return true;
+      return false;
+    });
+    const porAluno = {};
+    for (const t of achados) (porAluno[t.aluno_chave] = porAluno[t.aluno_chave] || []).push(t);
+    const alunos = Object.values(porAluno)
+      .map((lista) => lista.sort(compararModulo))
+      .sort((a, b) => compararModulo(a[0], b[0]));
+    const LIMITE = 60;
+
+    el.innerHTML = `
+      ${
+        ts.length
+          ? `<section class="mt"><h2>Turmas <span class="muted">(${ts.length})</span></h2>
+            <div class="cards-turma">${ts
+              .slice(0, 24)
+              .map(
+                (x) => `<a class="cartao card-turma" href="${linkAlunos({ grupo: x.grupo })}">
+                  <div class="card-topo"><b>${esc(x.grupo)}</b>${moduloTurma(x)}</div>
+                  <p class="muted">${x.n} alunos · ${x.exec} em execução${Object.keys(x.paises).length ? " · " + esc(Object.entries(x.paises).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([p]) => p).join(", ")) : ""}</p>
+                  <div class="card-docs"><span>CPF</span>${barraPct(x.cpf, x.n)}<span>RNM</span>${barraPct(x.rnm, x.n)}<span>CRO</span>${barraPct(x.cro, x.n)}</div>
+                </a>`
+              )
+              .join("")}</div></section>`
+          : ""
+      }
+      <section class="mt"><h2>Alunos <span class="muted">(${alunos.length})</span></h2>
+        ${
+          alunos.length
+            ? `<div class="cards-aluno">${alunos
+                .slice(0, LIMITE)
+                .map((lista) => {
+                  const p = lista[0];
+                  const cpf = lista.find((x) => x.cpf)?.cpf;
+                  const prot = lista.find((x) => x.rnm_numero_protocolo)?.rnm_numero_protocolo;
+                  return `<div class="cartao card-aluno">
+                    <div class="card-topo"><b>${esc(p.nome)}</b><span class="muted">${esc(p.pais || "")}</span></div>
+                    <p class="muted pequeno">${cpf ? "CPF " + esc(cpf) : "Sem CPF"}${prot ? " · Protocolo RNM " + esc(prot) : ""}${lista.length > 1 ? ` · em ${lista.length} turmas` : ""}</p>
+                    <ul class="tramites-aluno">${lista
+                      .map(
+                        (t) => `<li><a href="#/aluno/${t.id}">
+                          <span class="turma">${esc(t.grupo || "Sem turma")}</span>
+                          ${t.status_geral ? `<span class="tag ${classeStatus(t.status_geral)}">${esc(t.status_geral)}</span>` : ""}
+                          <span class="mod">${badgeModulo(t, false)}</span>
+                          <span class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}</span>
+                          <span class="abrir">Abrir ficha →</span>
+                        </a></li>`
+                      )
+                      .join("")}</ul>
+                  </div>`;
+                })
+                .join("")}</div>${alunos.length > LIMITE ? `<p class="muted">Mostrando ${LIMITE} de ${alunos.length}. Digite mais do nome para afinar.</p>` : ""}`
+            : `<div class="vazio">Nenhum aluno encontrado para "${esc(termo)}".</div>`
+        }
+      </section>`;
   }
 
   function editarJanela(j) {
