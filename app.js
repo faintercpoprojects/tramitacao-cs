@@ -129,7 +129,8 @@
 
   const configurado = Boolean(window.SUPABASE_URL && window.SUPABASE_KEY && window.supabase);
   const tipoLink = /[#&]type=(invite|recovery|signup|magiclink)/.exec(location.hash)?.[1] || null;
-  const sb = configurado ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  // lock próprio: o padrão da biblioteca prende a sessão entre abas e, se uma aba travar, todas travam.
+  const sb = configurado ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { lock: async (_nome, _espera, fn) => fn() } }) : null;
   const app = $("#app");
 
   let usuario = null;
