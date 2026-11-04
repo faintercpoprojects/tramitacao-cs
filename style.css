@@ -318,3 +318,4 @@ nav a.nav-pesquisa { border: 1px solid var(--line-2); }
 @media (max-width: 800px) {
   .tramites-aluno a { grid-template-columns: 1fr 1fr; }
 }
+.tramites-aluno a > .tag, .tramites-aluno .mod { justify-self: start; }
