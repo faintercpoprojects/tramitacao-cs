@@ -60,10 +60,36 @@
     "RNM oficial", "RNM provisório", "Registro",
   ];
   const FEITO = new Set(["OK", "Já possui", "Não precisa", "RNM oficial", "RNM provisório", "Registro"]);
-  const ANDAMENTO = new Set(["Solicitado", "Enviado", "Executando", "Traduciendo", "Actualizando", "Agendado", "En análisis", "Transcripción"]);
-  const ACAO = new Set(["Renovar", "Revisar", "Traducir", "Actualizar", "Actualizar y traducir", "Liberar", "Agendar", "Pagar", "Firmar", "Corrigir"]);
-  const classeStatus = (s) =>
-    !s ? "vazio" : FEITO.has(s) ? "ok" : ANDAMENTO.has(s) ? "andamento" : ACAO.has(s) ? "acao" : s === "Indeferido" ? "erro" : s === "Arquivado" ? "neutro" : "pend";
+  // Cores iguais às da planilha Tramitação (cada valor tem a mesma cor que o time já conhece).
+  const COR = {
+    // verde-menta (#A0F0C5): OK, Pago, Liberado, Completo, Oficial
+    OK: "c-menta", Pago: "c-menta", "RNM oficial": "c-menta",
+    // verde forte (#00B050): Já possui, Sí, Executado, Finalizado
+    "Já possui": "c-verde", Concluído: "c-verde", "Não precisa": "c-verde",
+    // vermelho (#FF3333): Pendiente, Indeferido
+    Pendiente: "c-vermelho", Indeferido: "c-vermelho",
+    // vermelho forte (#FF0000): Comp atrasado, Stand by
+    "Compromisso atrasado": "c-vermelho-forte", "Stand by": "c-vermelho-forte",
+    // amarelo-claro (#FFE599): Solicitado, Compromiso, Promessa
+    Solicitado: "c-creme", Compromisso: "c-creme", Promessa: "c-creme",
+    // amarelo (#FFFF00): Comunicado, Link, VISA pendente
+    Comunicado: "c-amarelo", "Link enviado": "c-amarelo", Pendente: "c-amarelo", Corrigir: "c-amarelo", Revisar: "c-amarelo",
+    // magenta (#FF00FF): Agendar, Actualizar, Receita Federal
+    Agendar: "c-magenta", Actualizar: "c-magenta", "Actualizar y traducir": "c-magenta", Actualizando: "c-magenta",
+    // azul (#4A86E8): Renovar
+    Renovar: "c-azul",
+    // ciano (#00FFFF): Enviado, Agendado, Traducir, Firmar, Pagar, Liberar
+    Enviado: "c-ciano", Agendado: "c-ciano", Traducir: "c-ciano", Firmar: "c-ciano", Pagar: "c-ciano", Liberar: "c-ciano",
+    // laranja (#FF9900): Executando, Traduciendo
+    Executando: "c-laranja", Traduciendo: "c-laranja", Transcripción: "c-laranja", "En análisis": "c-laranja",
+    // verde-limão (#00FF00): PROV, Registro
+    "RNM provisório": "c-limao", Registro: "c-limao",
+    // neutros
+    Lead: "c-branco", Arquivado: "c-cinza", "Sem interesse": "c-cinza", Não: "c-cinza",
+  };
+  const classeStatus = (s) => (!s ? "vazio" : COR[s] || "c-cinza");
+  // Documento completo = verde-menta; nada feito = vermelho (Pendiente); no meio = laranja (Executando).
+  const corProgresso = (p) => (p.completo ? "c-menta" : p.feitos === 0 ? "c-vermelho" : "c-laranja");
 
   const STATUS_GERAL = ["Lead", "Promessa", "Pendiente", "Executando", "Stand by", "Concluído", "Já possui", "Não precisa", "Sem interesse"];
   const AGENDAR = ["Agendar", "Agendado", "Comunicado", "Renovar", "Pendiente", "OK", "Não"];
@@ -470,7 +496,7 @@
             renov.length
               ? `<ul class="lista-simples">${renov
                   .slice(0, 8)
-                  .map((t) => `<li><a href="#/aluno/${t.id}">${esc(t.nome)}</a> <span class="muted">${esc(t.grupo || "")}</span><span class="${dias(t.data_renovacao) < 0 ? "tag erro" : "tag acao"}">${dataBR(t.data_renovacao)}</span></li>`)
+                  .map((t) => `<li><a href="#/aluno/${t.id}">${esc(t.nome)}</a> <span class="muted">${esc(t.grupo || "")}</span><span class="${dias(t.data_renovacao) < 0 ? "tag c-vermelho" : "tag c-amarelo"}">${dataBR(t.data_renovacao)}</span></li>`)
                   .join("")}</ul>${renov.length > 8 ? `<a href="#/agenda">Ver todas (${renov.length})</a>` : ""}`
               : `<p class="muted">Nenhuma renovação próxima.</p>`
           }
@@ -525,7 +551,7 @@
 
   function chipDoc(t, d) {
     const p = progresso(t, d);
-    const cls = p.completo ? "ok" : p.feitos === 0 ? "pend" : "andamento";
+    const cls = corProgresso(p);
     return `<span class="chip ${cls}" title="${DOCS[d].nome}: ${p.feitos} de ${p.total} etapas concluídas">${DOCS[d].nome} ${p.feitos}/${p.total}</span>`;
   }
 
@@ -588,8 +614,8 @@
           <td><a href="#/aluno/${t.id}" class="nome">${esc(t.nome)}</a>${t.observacoes ? ` <span class="obs" title="${esc(t.observacoes)}">●</span>` : ""}</td>
           <td>${esc(t.grupo || "")}</td>
           <td>${esc(t.pais || "")}</td>
-          <td>${t.status_geral ? `<span class="tag st-${semAcento(t.status_geral).replace(/\W/g, "")}">${esc(t.status_geral)}</span>` : ""}</td>
-          <td>${t.pagamento ? `<span class="tag pg-${semAcento(t.pagamento).replace(/\W/g, "")}">${esc(t.pagamento)}</span>` : ""}</td>
+          <td>${t.status_geral ? `<span class="tag ${classeStatus(t.status_geral)}">${esc(t.status_geral)}</span>` : ""}</td>
+          <td>${t.pagamento ? `<span class="tag ${classeStatus(t.pagamento)}">${esc(t.pagamento)}</span>` : ""}</td>
           <td class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}</td>
           ${etapaSel ? `<td>${podeEditar() ? `<select class="st ${classeStatus(t[etapaSel])}" data-rapido="${t.id}">${opcoes(STATUS_ETAPA, t[etapaSel])}</select>` : `<span class="tag ${classeStatus(t[etapaSel])}">${esc(t[etapaSel] || "—")}</span>`}</td>` : ""}
           <td class="muted pequeno" title="${esc(t.atualizado_por || "")}">${dataHora(t.atualizado_em)}</td>
@@ -714,7 +740,8 @@
       const v = t[c];
       let input;
       if (!ed) input = `<span class="valor">${esc(tipo === "data" ? dataBR(v) : tipo === "simnao" ? (v == null ? "" : v ? "Sim" : "Não") : tipo === "numero" && c === "preco" ? moeda(v) : v ?? "") || "—"}</span>`;
-      else if (tipo === "lista") input = `<select data-campo="${c}">${opcoes(lista, v)}</select>`;
+      else if (tipo === "lista")
+        input = `<select data-campo="${c}" ${["status_geral", "pagamento", "agendar", "visa"].includes(c) ? `class="st ${classeStatus(v)}"` : ""}>${opcoes(lista, v)}</select>`;
       else if (tipo === "simnao") input = `<select data-campo="${c}" data-tipo="simnao"><option value="">—</option><option value="1" ${v === true ? "selected" : ""}>Sim</option><option value="0" ${v === false ? "selected" : ""}>Não</option></select>`;
       else if (tipo === "data") input = `<input type="date" data-campo="${c}" value="${esc(v || "")}">`;
       else if (tipo === "numero") input = `<input type="number" step="any" data-campo="${c}" data-tipo="numero" value="${esc(v ?? "")}">`;
@@ -724,7 +751,7 @@
     const blocoDoc = (d) => {
       const p = progresso(t, d);
       return `<section class="bloco-doc">
-        <header><h3>${DOCS[d].nome}</h3><span class="chip ${p.completo ? "ok" : p.feitos ? "andamento" : "pend"}">${p.feitos}/${p.total}</span>
+        <header><h3>${DOCS[d].nome}</h3><span class="chip ${corProgresso(p)}">${p.feitos}/${p.total}</span>
         ${ed && !p.completo ? `<button class="link" data-tudook="${d}">Marcar tudo OK</button>` : ""}</header>
         <div class="etapas">${DOCS[d].etapas
           .map(
@@ -849,7 +876,7 @@
       const p = progresso(t, d);
       const chip = $(".chip", b);
       chip.textContent = `${p.feitos}/${p.total}`;
-      chip.className = `chip ${p.completo ? "ok" : p.feitos ? "andamento" : "pend"}`;
+      chip.className = `chip ${corProgresso(p)}`;
     });
   }
 
@@ -1065,7 +1092,7 @@
             renov
               .map((t) => {
                 const d = dias(t.data_renovacao);
-                return `<tr><td><span class="tag ${d < 0 ? "erro" : d <= 30 ? "acao" : "neutro"}">${dataBR(t.data_renovacao)}</span> <span class="muted pequeno">${d < 0 ? `venceu há ${-d} dias` : `em ${d} dias`}</span></td>
+                return `<tr><td><span class="tag ${d < 0 ? "c-vermelho" : d <= 30 ? "c-amarelo" : "c-cinza"}">${dataBR(t.data_renovacao)}</span> <span class="muted pequeno">${d < 0 ? `venceu há ${-d} dias` : `em ${d} dias`}</span></td>
                 <td><a href="#/aluno/${t.id}">${esc(t.nome)}</a></td><td>${esc(t.grupo || "")}</td><td>${esc(t.status_geral || "")}</td><td>${esc(t.agendar || "")}</td></tr>`;
               })
               .join("") || `<tr><td colspan="5" class="vazio">Nenhuma renovação pendente.</td></tr>`
@@ -1089,7 +1116,7 @@
       ? `<table><thead><tr><th>Quando</th><th>Quem</th><th>Aluno</th><th>O que mudou</th></tr></thead><tbody>${data
           .map((h) => {
             const t = porId.get(h.tramite_id);
-            return `<tr><td class="pequeno">${dataHora(h.quando)}</td><td>${esc(h.quem || "—")}${h.origem === "planilha" ? ` <span class="tag neutro">planilha</span>` : ""}</td>
+            return `<tr><td class="pequeno">${dataHora(h.quando)}</td><td>${esc(h.quem || "—")}${h.origem === "planilha" ? ` <span class="tag c-cinza">planilha</span>` : ""}</td>
             <td>${t ? `<a href="#/aluno/${t.id}">${esc(t.nome)}</a> <span class="muted pequeno">${esc(t.grupo || "")}</span>` : "—"}</td>
             <td><b>${esc(ROTULO[h.campo] || h.campo)}</b>: ${esc(h.de ?? "—")} → ${esc(h.para ?? "—")}</td></tr>`;
           })
