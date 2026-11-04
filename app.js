@@ -180,7 +180,7 @@
     document.addEventListener("keydown", tecla);
     fundo.querySelectorAll("[data-fechar]").forEach((b) => (b.onclick = fechar));
     document.body.appendChild(fundo);
-    fundo.querySelector("input, textarea, select, button")?.focus();
+    (larga ? fundo.querySelector(".fechar") : fundo.querySelector("input, textarea, select, button"))?.focus();
     aoAbrir?.(fundo.querySelector(".modal"), fechar);
     return fechar;
   }
@@ -665,6 +665,7 @@
       if (p.etapa && p.doc && ETAPA[p.etapa]?.doc !== p.doc) delete p.etapa;
       if (p.situacao && !p.etapa && !p.doc) delete p.situacao;
       history.replaceState(null, "", linkAlunos(p));
+      ultimaRota = linkAlunos(p);
       listaAlunos(new URLSearchParams(p), false);
       if (p.busca !== undefined) {
         const b = $("#fFiltros [name=busca]");
@@ -739,7 +740,7 @@
       `<header class="ficha-topo">
         <div>
           ${ed ? `<input class="nome-grande" data-campo="nome" value="${esc(t.nome)}" maxlength="200">` : `<h2>${esc(t.nome)}</h2>`}
-          <p class="muted">${esc(t.grupo || "Sem turma")} · ${esc(t.pais || "Sem país")}${t.arquivado ? " · <b>Arquivado</b>" : ""} · atualizado ${dataHora(t.atualizado_em)}${t.atualizado_por ? " por " + esc(t.atualizado_por) : ""}</p>
+          <p class="muted" id="fichaSub">${subtituloFicha(t)}</p>
         </div>
         <button class="fechar" data-fechar aria-label="Fechar">×</button>
       </header>
@@ -836,7 +837,13 @@
     const fecharFicha = fechar;
   }
 
+  function subtituloFicha(t) {
+    return `${esc(t.grupo || "Sem turma")} · ${esc(t.pais || "Sem país")}${t.arquivado ? " · <b>Arquivado</b>" : ""} · atualizado ${dataHora(t.atualizado_em)}${t.atualizado_por ? " por " + esc(t.atualizado_por) : ""}`;
+  }
+
   function atualizarCabecalhosDoc(m, t) {
+    const sub = $("#fichaSub", m.closest(".modal-fundo") || document);
+    if (sub) sub.innerHTML = subtituloFicha(t);
     $$(".bloco-doc", m).forEach((b, i) => {
       const d = Object.keys(DOCS)[i];
       const p = progresso(t, d);
