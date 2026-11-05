@@ -171,6 +171,65 @@
     const feitos = et.filter(([c]) => FEITO.has(t[c])).length;
     return { feitos, total: et.length, completo: feitos === et.length };
   }
+
+  // ---------- regra oficial de pendências (definida pelo time de CS em 05/11/2026) ----------
+  // Leads não entram na conta. Só 3 colunas da planilha decidem se o documento está pronto:
+  //   CPF  = coluna U  (Protocolo): tem o número de 11 dígitos → concluído; sem número → em execução.
+  //   RNM  = coluna AF (Agendamiento): OK → concluído; Pendiente → em execução.
+  //   CRO  = coluna AT (Certificado enviado): OK → concluído; Pendiente → em execução.
+  // Formulários = colunas AA (Protocolo RNM, com número) + AD (Dec. pesquisa) + AE (Dec. ausencia):
+  //   cada uma que estiver Pendiente é um formulário pendente de preenchimento.
+  const PEND_DOCS = {
+    cpf: { nome: "CPF", coluna: "Protocolo (col. U)" },
+    rnm: { nome: "RNM", coluna: "Agendamiento (col. AF)" },
+    cro: { nome: "CRO", coluna: "Certificado enviado (col. AT)" },
+  };
+  const FORM_CAMPOS = [
+    ["rnm_protocolo", "Protocolo RNM (AA)"],
+    ["rnm_dec_pesquisa", "Dec. pesquisa (AD)"],
+    ["rnm_dec_ausencia_antecedentes", "Dec. ausencia antecedentes (AE)"],
+  ];
+  const OPCOES_PEND = [
+    ["cpf", "CPF em execução"], ["cpf-ok", "CPF concluído"],
+    ["rnm", "RNM em execução"], ["rnm-ok", "RNM concluído"],
+    ["cro", "CRO em execução"], ["cro-ok", "CRO concluído"],
+    ["form", "Formulários pendentes"], ["form-ok", "Formulários completos"],
+  ];
+  const entraNaConta = (t) => !t.arquivado && t.status_geral !== "Lead";
+  const so11 = (v) => String(v || "").replace(/\D/g, "").length === 11;
+  // "concluido" | "execucao" | null (linha sem informação: não conta)
+  function situacaoDoc(t, d) {
+    if (d === "cpf") {
+      if (so11(t.cpf) || so11(t.cpf_protocolo)) return "concluido";
+      return t.cpf_protocolo ? "execucao" : null;
+    }
+    const v = d === "rnm" ? t.rnm_agendamiento : t.cro_certificado_enviado;
+    return v === "OK" ? "concluido" : v === "Pendiente" ? "execucao" : null;
+  }
+  function formularios(t) {
+    const pend = FORM_CAMPOS.filter(([c]) => (c === "rnm_protocolo" && t.rnm_numero_protocolo ? false : t[c] === "Pendiente")).map(([, r]) => r);
+    const completo = !!t.rnm_numero_protocolo && t.rnm_dec_pesquisa === "OK" && t.rnm_dec_ausencia_antecedentes === "OK";
+    return { pend, n: pend.length, completo };
+  }
+  // Conta concluídos / em execução / formulários pendentes de uma lista (sem leads).
+  function contarPendencias(lista) {
+    const r = { base: 0, form: 0, formAlunos: 0, formOk: 0 };
+    for (const d of Object.keys(PEND_DOCS)) r[d] = { c: 0, e: 0 };
+    for (const t of lista) {
+      if (!entraNaConta(t)) continue;
+      r.base++;
+      for (const d of Object.keys(PEND_DOCS)) {
+        const s = situacaoDoc(t, d);
+        if (s === "concluido") r[d].c++;
+        else if (s === "execucao") r[d].e++;
+      }
+      const f = formularios(t);
+      r.form += f.n;
+      if (f.n) r.formAlunos++;
+      if (f.completo) r.formOk++;
+    }
+    return r;
+  }
   const ativos = () => tramites.filter((t) => !t.arquivado);
 
   // ---------- avisos ----------
@@ -469,20 +528,21 @@
     const blocos = {};
     for (const t of emBreve) {
       const k = t.prox_modulo + "|" + (t.grupo || "Sem turma");
-      const b = (blocos[k] = blocos[k] || { data: t.prox_modulo, grupo: t.grupo || "Sem turma", n: 0, exec: 0, cpf: 0, rnm: 0, cro: 0 });
+      const b = (blocos[k] = blocos[k] || { data: t.prox_modulo, grupo: t.grupo || "Sem turma", n: 0, base: 0, cpf: 0, rnm: 0, cro: 0, form: 0 });
       b.n++;
-      if (t.status_geral === "Executando") {
-        b.exec++;
-        for (const d of ["cpf", "rnm", "cro"]) if (!progresso(t, d).completo) b[d]++;
+      if (entraNaConta(t)) {
+        b.base++;
+        for (const d of Object.keys(PEND_DOCS)) if (situacaoDoc(t, d) === "execucao") b[d]++;
+        if (formularios(t).n) b.form++;
       }
     }
     const proxModulos = Object.values(blocos).sort((a, b) => a.data.localeCompare(b.data) || a.grupo.localeCompare(b.grupo));
     const em7 = emBreve.filter((t) => dias(t.prox_modulo) <= 7).length;
-    const faltaTxt = (n, total, grupo, doc) =>
+    const faltaTxt = (n, total, grupo, pend) =>
       total === 0 ? `<span class="muted">—</span>`
       : n === 0 ? `<span class="tag c-menta">ok</span>`
-      : `<a class="tag c-vermelho" href="${linkAlunos({ grupo, status: "Executando", doc, situacao: "incompleto" })}">${n}</a>`;
-    const docsCompletos = Object.keys(DOCS).map((d) => ({ d, n: conta(exec, (t) => progresso(t, d).completo) }));
+      : `<a class="tag c-vermelho" href="${linkAlunos({ grupo, pend })}">${n}</a>`;
+    const pz = contarPendencias(lista);
 
     // Gargalos: etapas não concluídas entre os alunos em execução
     const gargalos = TODAS_ETAPAS.map((e) => ({ ...e, n: conta(exec, (t) => !FEITO.has(t[e.campo]) && t[e.campo] !== "Arquivado") }))
@@ -502,21 +562,21 @@
     const topPaises = Object.entries(paises).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
     app.innerHTML = `
-      <section class="cabeca"><h1>Painel</h1><p class="muted">${lista.length} trâmites · ${new Set(lista.map((t) => t.aluno_chave)).size} alunos · ${new Set(lista.map((t) => t.grupo).filter(Boolean)).size} turmas</p></section>
+      <section class="cabeca"><h1>Painel</h1><p class="muted">${pz.base} trâmites · ${new Set(lista.filter(entraNaConta).map((t) => t.aluno_chave)).size} alunos · ${new Set(lista.filter(entraNaConta).map((t) => t.grupo).filter(Boolean)).size} turmas <span class="pequeno">(leads não entram nas contas)</span></p></section>
       <section class="cartao destaque">
         <div class="destaque-topo">
-          <div><h2>Próximos módulos</h2><p class="muted">Turmas com módulo nos próximos 30 dias e quantos alunos em execução ainda têm documento pendente.</p></div>
+          <div><h2>Próximos módulos</h2><p class="muted">Turmas com módulo nos próximos 30 dias e quantos alunos (sem contar leads) ainda têm pendência.</p></div>
           <div class="destaque-num"><a href="${linkAlunos({ modulo: "7" })}"><b>${em7}</b><span>alunos com módulo<br>nos próximos 7 dias</span></a>
           <a href="${linkAlunos({ modulo: "30" })}"><b>${emBreve.length}</b><span>alunos com módulo<br>nos próximos 30 dias</span></a></div>
         </div>
         ${
           proxModulos.length
-            ? `<div class="tabela-wrap"><table class="modulos"><thead><tr><th>Próximo módulo</th><th>Turma</th><th>Alunos</th><th>Em execução</th><th>CPF pendente</th><th>RNM pendente</th><th>CRO pendente</th></tr></thead><tbody>${proxModulos
+            ? `<div class="tabela-wrap"><table class="modulos"><thead><tr><th>Próximo módulo</th><th>Turma</th><th>Alunos</th><th>Sem leads</th><th>CPF pendente</th><th>RNM pendente</th><th>CRO pendente</th><th>Formulários pendentes</th></tr></thead><tbody>${proxModulos
                 .map((b) => {
                   const d = dias(b.data);
                   return `<tr><td><span class="modulo"><span class="tag ${corModulo(d)}">${dataBR(b.data)}</span><small>${quandoTxt(d)}</small></span></td>
-                  <td><a class="nome" href="${linkAlunos({ grupo: b.grupo })}">${esc(b.grupo)}</a></td><td>${b.n}</td><td>${b.exec}</td>
-                  <td>${faltaTxt(b.cpf, b.exec, b.grupo, "cpf")}</td><td>${faltaTxt(b.rnm, b.exec, b.grupo, "rnm")}</td><td>${faltaTxt(b.cro, b.exec, b.grupo, "cro")}</td></tr>`;
+                  <td><a class="nome" href="${linkAlunos({ grupo: b.grupo })}">${esc(b.grupo)}</a></td><td>${b.n}</td><td>${b.base}</td>
+                  <td>${faltaTxt(b.cpf, b.base, b.grupo, "cpf")}</td><td>${faltaTxt(b.rnm, b.base, b.grupo, "rnm")}</td><td>${faltaTxt(b.cro, b.base, b.grupo, "cro")}</td><td>${faltaTxt(b.form, b.base, b.grupo, "form")}</td></tr>`;
                 })
                 .join("")}</tbody></table></div>`
             : `<p class="muted">Nenhum módulo nos próximos 30 dias.</p>`
@@ -524,21 +584,34 @@
       </section>
       <section class="kpis">
         <a class="kpi" href="${linkAlunos({ status: "Executando" })}"><b>${exec.length}</b><span>Em execução</span></a>
-        <a class="kpi" href="${linkAlunos({ status: "Lead" })}"><b>${conta(lista, (t) => t.status_geral === "Lead")}</b><span>Leads</span></a>
         <a class="kpi" href="${linkAlunos({ status: "Promessa" })}"><b>${conta(lista, (t) => t.status_geral === "Promessa")}</b><span>Promessas</span></a>
         <a class="kpi alerta" href="${linkAlunos({ status: "Executando", pagamento: "pendente" })}"><b>${pagPend}</b><span>Em execução com pagamento pendente</span></a>
       </section>
-      <section class="grade-3">
-        ${docsCompletos
-          .map(
-            ({ d, n }) => `
-          <a class="cartao doc" href="${linkAlunos({ status: "Executando", doc: d, situacao: "incompleto" })}">
-            <div class="doc-topo"><h3>${DOCS[d].nome}</h3><span class="muted">${pct(n, exec.length)}% concluído</span></div>
-            <div class="barra"><i style="width:${pct(n, exec.length)}%"></i></div>
-            <p><b>${n}</b> de ${exec.length} alunos em execução concluíram · <b>${exec.length - n}</b> faltando</p>
-          </a>`
-          )
+      <section class="cabeca mt"><h2>Pendências</h2><p class="muted">Números exatos pela planilha, sem contar leads (${pz.base} trâmites). CPF = coluna U · RNM = coluna AF · CRO = coluna AT · Formulários = colunas AA + AD + AE.</p></section>
+      <section class="grade-4 pendencias">
+        ${Object.entries(PEND_DOCS)
+          .map(([d, info]) => {
+            const { c, e } = pz[d];
+            return `<div class="cartao doc pend">
+            <div class="doc-topo"><h3>${info.nome}</h3><span class="muted">${pct(c, c + e)}% concluído</span></div>
+            <div class="barra"><i style="width:${pct(c, c + e)}%"></i></div>
+            <div class="pend-nums">
+              <a class="pend-num ruim" href="${linkAlunos({ pend: d })}"><b>${e}</b><span>em execução<br>(pendências)</span></a>
+              <a class="pend-num bom" href="${linkAlunos({ pend: d + "-ok" })}"><b>${c}</b><span>concluídos</span></a>
+            </div>
+            <p class="muted pequeno">${esc(info.coluna)}</p>
+          </div>`;
+          })
           .join("")}
+        <div class="cartao doc pend">
+          <div class="doc-topo"><h3>Formulários</h3><span class="muted">${pct(pz.formOk, pz.formOk + pz.formAlunos)}% completos</span></div>
+          <div class="barra"><i style="width:${pct(pz.formOk, pz.formOk + pz.formAlunos)}%"></i></div>
+          <div class="pend-nums">
+            <a class="pend-num ruim" href="${linkAlunos({ pend: "form" })}"><b>${pz.form}</b><span>formulários pendentes<br>(${pz.formAlunos} alunos)</span></a>
+            <a class="pend-num bom" href="${linkAlunos({ pend: "form-ok" })}"><b>${pz.formOk}</b><span>alunos com<br>tudo OK</span></a>
+          </div>
+          <p class="muted pequeno">Protocolo RNM (AA) + Dec. pesquisa (AD) + Dec. ausencia (AE)</p>
+        </div>
       </section>
       <section class="grade-2">
         <div class="cartao">
@@ -598,6 +671,7 @@
       modulo: q.get("modulo") || "",
       modDe: q.get("modDe") || "",
       modAte: q.get("modAte") || "",
+      pend: q.get("pend") || "",
     };
     const h = hojeISO();
     const lista = tramites.filter((t) => {
@@ -615,6 +689,15 @@
         if (/^\d+$/.test(f.modulo) && !(tem && t.prox_modulo >= h && dias(t.prox_modulo) <= Number(f.modulo))) return false;
       }
       if (f.grupo && t.grupo !== f.grupo) return false;
+      // Pendências pela regra oficial (sem leads): "cpf" = em execução, "cpf-ok" = concluído, "form" = formulário pendente…
+      if (f.pend) {
+        if (!entraNaConta(t)) return false;
+        const [d, ok] = f.pend.split("-");
+        if (d === "form") {
+          const fo = formularios(t);
+          if (ok ? !fo.completo : !fo.n) return false;
+        } else if (situacaoDoc(t, d) !== (ok ? "concluido" : "execucao")) return false;
+      }
       if (f.pais && (t.pais || "Sem país") !== f.pais) return false;
       if (f.status && (t.status_geral || "Sem status") !== f.status) return false;
       if (f.pagamento === "pendente" ? !["Pendiente", "Compromisso atrasado"].includes(t.pagamento) : f.pagamento && t.pagamento !== f.pagamento) return false;
@@ -639,10 +722,20 @@
     return q.get("ordem") === "nome" ? lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt")) : lista.sort(compararModulo);
   }
 
+  // Chip do documento: a cor segue a regra oficial (coluna U / AF / AT); o número mostra as etapas.
   function chipDoc(t, d) {
     const p = progresso(t, d);
-    const cls = corProgresso(p);
-    return `<span class="chip ${cls}" title="${DOCS[d].nome}: ${p.feitos} de ${p.total} etapas concluídas">${DOCS[d].nome} ${p.feitos}/${p.total}</span>`;
+    const s = situacaoDoc(t, d);
+    const etapas = `${p.feitos} de ${p.total} etapas marcadas`;
+    if (s === "concluido") return `<span class="chip c-menta" title="${DOCS[d].nome} concluído (${PEND_DOCS[d].coluna}) · ${etapas}">${DOCS[d].nome} ✓</span>`;
+    const cls = s === "execucao" ? (p.feitos === 0 ? "c-vermelho" : "c-laranja") : corProgresso(p);
+    return `<span class="chip ${cls}" title="${DOCS[d].nome} ${s === "execucao" ? "em execução" : "sem informação"} (${PEND_DOCS[d].coluna}) · ${etapas}">${DOCS[d].nome} ${p.feitos}/${p.total}</span>`;
+  }
+  function chipForm(t) {
+    const f = formularios(t);
+    if (f.completo) return `<span class="chip c-menta" title="Formulários completos (AA com número, AD e AE OK)">Form. ✓</span>`;
+    if (!f.n) return "";
+    return `<span class="chip c-vermelho" title="Formulários pendentes: ${esc(f.pend.join(", "))}">Form. ${f.n} pend.</span>`;
   }
 
   function listaAlunos(q, silencioso) {
@@ -683,6 +776,7 @@
           <input type="date" name="modAte" value="${esc(q.get("modAte") || "")}" title="Até" aria-label="Próximo módulo até">
           ${q.get("modDe") || q.get("modAte") ? `<button type="button" class="link" id="limparPeriodo">limpar</button>` : ""}
         </div>
+        <label class="destaque-filtro">Pendência<select name="pend"><option value="">Todas</option>${OPCOES_PEND.map(([v, r]) => `<option value="${v}" ${v === (q.get("pend") || "") ? "selected" : ""}>${r}</option>`).join("")}</select></label>
         <label>Ordenar por<select name="ordem"><option value="">Próximo módulo</option><option value="nome" ${q.get("ordem") === "nome" ? "selected" : ""}>Nome</option></select></label>
         ${sel("grupo", valores("grupo"), q.get("grupo"), "Turma")}
         ${sel("pais", valores("pais", "Sem país"), q.get("pais"), "País")}
@@ -718,7 +812,7 @@
           <td>${esc(t.pais || "")}</td>
           <td>${t.status_geral ? `<span class="tag ${classeStatus(t.status_geral)}">${esc(t.status_geral)}</span>` : ""}</td>
           <td>${t.pagamento ? `<span class="tag ${classeStatus(t.pagamento)}">${esc(t.pagamento)}</span>` : ""}</td>
-          <td class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}</td>
+          <td class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}${chipForm(t)}</td>
           ${etapaSel ? `<td>${podeEditar() ? `<select class="st ${classeStatus(t[etapaSel])}" data-rapido="${t.id}">${opcoes(STATUS_ETAPA, t[etapaSel])}</select>` : `<span class="tag ${classeStatus(t[etapaSel])}">${esc(t[etapaSel] || "—")}</span>`}</td>` : ""}
           <td class="muted pequeno" title="${esc(t.atualizado_por || "")}">${dataHora(t.atualizado_em)}</td>
         </tr>`
@@ -897,7 +991,7 @@
           ${
             outros.length
               ? `<h3 class="mt">Mesmo aluno em outras turmas</h3><ul class="lista-simples">${outros
-                  .map((o) => `<li><a href="#/aluno/${o.id}">${esc(o.grupo || "Sem turma")}</a><span class="muted">${esc(o.status_geral || "")}</span><span class="chips">${chipDoc(o, "cpf")}${chipDoc(o, "rnm")}${chipDoc(o, "cro")}</span></li>`)
+                  .map((o) => `<li><a href="#/aluno/${o.id}">${esc(o.grupo || "Sem turma")}</a><span class="muted">${esc(o.status_geral || "")}</span><span class="chips">${chipDoc(o, "cpf")}${chipDoc(o, "rnm")}${chipDoc(o, "cro")}${chipForm(o)}</span></li>`)
                   .join("")}</ul>`
               : ""
           }
@@ -1085,16 +1179,34 @@
     const h = hojeISO();
     for (const t of ativos()) {
       if (!t.grupo) continue;
-      const x = (g[t.grupo] = g[t.grupo] || { grupo: t.grupo, n: 0, exec: 0, cpf: 0, rnm: 0, cro: 0, prox: null, paises: {} });
+      const x = (g[t.grupo] = g[t.grupo] || {
+        grupo: t.grupo, n: 0, exec: 0, base: 0, form: 0, prox: null, paises: {},
+        cpf: { c: 0, e: 0 }, rnm: { c: 0, e: 0 }, cro: { c: 0, e: 0 },
+      });
       x.n++;
       if (t.status_geral === "Executando") x.exec++;
-      for (const d of ["cpf", "rnm", "cro"]) if (progresso(t, d).completo) x[d]++;
+      if (entraNaConta(t)) {
+        x.base++;
+        for (const d of Object.keys(PEND_DOCS)) {
+          const s = situacaoDoc(t, d);
+          if (s === "concluido") x[d].c++;
+          else if (s === "execucao") x[d].e++;
+        }
+        x.form += formularios(t).n;
+      }
       if (t.prox_modulo && !t.modulo_finalizado && t.prox_modulo >= h && (!x.prox || t.prox_modulo < x.prox)) x.prox = t.prox_modulo;
       if (t.pais) x.paises[t.pais] = (x.paises[t.pais] || 0) + 1;
     }
     return Object.values(g).sort((a, b) => (a.prox || "9").localeCompare(b.prox || "9") || a.grupo.localeCompare(b.grupo));
   }
   const barraPct = (a, n) => `<div class="mini-barra" title="${a} de ${n}"><i style="width:${pct(a, n)}%"></i><span>${pct(a, n)}%</span></div>`;
+  // Barra de concluídos + quantos estão em execução (pendências), pela regra oficial e sem leads.
+  const celPend = (x, d) => {
+    const { c, e } = x[d];
+    const pendTxt = e ? `<a class="pend-mini" href="${linkAlunos({ grupo: x.grupo, pend: d })}" title="Ver quem está com ${PEND_DOCS[d].nome} em execução">${e} pend.</a>` : c ? `<span class="pend-mini ok">ok</span>` : "";
+    return `<div class="cel-pend">${c + e ? `<div class="mini-barra" title="${c} concluídos de ${c + e}"><i style="width:${pct(c, c + e)}%"></i><span>${pct(c, c + e)}%</span></div>` : `<span class="muted">—</span>`}${pendTxt}</div>`;
+  };
+  const celForm = (x) => (x.form ? `<a class="pend-mini" href="${linkAlunos({ grupo: x.grupo, pend: "form" })}">${x.form} pend.</a>` : x.base ? `<span class="pend-mini ok">ok</span>` : `<span class="muted">—</span>`);
   const moduloTurma = (x) => (x.prox ? `<span class="modulo"><span class="tag ${corModulo(dias(x.prox))}">${dataBR(x.prox)}</span><small>${quandoTxt(dias(x.prox))}</small></span>` : `<span class="muted">—</span>`);
   const normBusca = (s) => semAcento(s).replace(/\s+/g, " ").trim();
 
@@ -1106,12 +1218,12 @@
       <section class="cabeca linha"><div><h1>Turmas</h1><p class="muted" id="contTurmas">${lista.length} turmas com alunos ativos. Ordenadas pelo próximo módulo.</p></div>
         <label class="busca-turma">Buscar turma<input type="search" id="buscaTurma" placeholder="Ex.: ORTOT62, endo, 55…" autocomplete="off"></label></section>
       <div class="tabela-wrap"><table class="turmas">
-        <thead><tr><th>Turma</th><th>Alunos</th><th>Em execução</th><th class="col-modulo">Próximo módulo</th><th>CPF</th><th>RNM</th><th>CRO</th></tr></thead>
+        <thead><tr><th>Turma</th><th>Alunos</th><th>Sem leads</th><th class="col-modulo">Próximo módulo</th><th>CPF</th><th>RNM</th><th>CRO</th><th>Formulários</th></tr></thead>
         <tbody>${lista
           .map(
-            (x) => `<tr data-busca="${esc(x.grupo.toLowerCase())}"><td><a href="${linkAlunos({ grupo: x.grupo })}"><b>${esc(x.grupo)}</b></a></td><td>${x.n}</td><td>${x.exec}</td>
+            (x) => `<tr data-busca="${esc(x.grupo.toLowerCase())}"><td><a href="${linkAlunos({ grupo: x.grupo })}"><b>${esc(x.grupo)}</b></a></td><td>${x.n}</td><td>${x.base}</td>
             <td class="col-modulo">${moduloTurma(x)}</td>
-            <td>${barra(x.cpf, x.n)}</td><td>${barra(x.rnm, x.n)}</td><td>${barra(x.cro, x.n)}</td></tr>`
+            <td>${celPend(x, "cpf")}</td><td>${celPend(x, "rnm")}</td><td>${celPend(x, "cro")}</td><td>${celForm(x)}</td></tr>`
           )
           .join("")}</tbody>
       </table></div>
@@ -1219,8 +1331,10 @@
               .map(
                 (x) => `<a class="cartao card-turma" href="${linkAlunos({ grupo: x.grupo })}">
                   <div class="card-topo"><b>${esc(x.grupo)}</b>${moduloTurma(x)}</div>
-                  <p class="muted">${x.n} alunos · ${x.exec} em execução${Object.keys(x.paises).length ? " · " + esc(Object.entries(x.paises).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([p]) => p).join(", ")) : ""}</p>
-                  <div class="card-docs"><span>CPF</span>${barraPct(x.cpf, x.n)}<span>RNM</span>${barraPct(x.rnm, x.n)}<span>CRO</span>${barraPct(x.cro, x.n)}</div>
+                  <p class="muted">${x.n} alunos · ${x.base} sem leads${Object.keys(x.paises).length ? " · " + esc(Object.entries(x.paises).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([p]) => p).join(", ")) : ""}</p>
+                  <div class="card-docs">${Object.keys(PEND_DOCS)
+                    .map((d) => `<span>${PEND_DOCS[d].nome}</span>${barraPct(x[d].c, x[d].c + x[d].e)}<small class="${x[d].e ? "pend-mini" : "pend-mini ok"}">${x[d].e ? x[d].e + " pend." : "ok"}</small>`)
+                    .join("")}<span>Form.</span><span></span><small class="${x.form ? "pend-mini" : "pend-mini ok"}">${x.form ? x.form + " pend." : "ok"}</small></div>
                 </a>`
               )
               .join("")}</div></section>`
@@ -1244,7 +1358,7 @@
                           <span class="turma">${esc(t.grupo || "Sem turma")}</span>
                           ${t.status_geral ? `<span class="tag ${classeStatus(t.status_geral)}">${esc(t.status_geral)}</span>` : ""}
                           <span class="mod">${badgeModulo(t, false)}</span>
-                          <span class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}</span>
+                          <span class="chips">${chipDoc(t, "cpf")}${chipDoc(t, "rnm")}${chipDoc(t, "cro")}${chipForm(t)}</span>
                           <span class="abrir">Abrir ficha →</span>
                         </a></li>`
                       )
