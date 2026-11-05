@@ -245,7 +245,14 @@ select.st option { background: var(--card); color: var(--ink); font-weight: 500;
 /* ---------- equipe ---------- */
 .campos-linha { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
 .campos-linha label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); flex: 1 1 180px; }
-.acoes-pessoa { display: flex; gap: 14px; flex-wrap: wrap; }
+.acoes-pessoa { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.senha-linha { display: flex; gap: 8px; }
+.senha-linha input { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; letter-spacing: 0.5px; }
+.acesso-pronto { display: grid; gap: 8px; margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.03); }
+.acesso-pronto div { display: flex; gap: 12px; align-items: baseline; }
+.acesso-pronto span { width: 60px; flex: none; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.acesso-pronto b { word-break: break-all; }
+.acesso-pronto .mono { font-family: ui-monospace, Consolas, monospace; font-size: 16px; color: var(--menta); }
 
 /* ---------- aviso ---------- */
 .aviso { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; padding: 10px 18px; border-radius: 10px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }

@@ -1405,26 +1405,79 @@
     );
   }
 
-  function definirSenhaDeOutro(id, email) {
+  function gerarSenha() {
+    // Sem caracteres parecidos (0/O, 1/l/I) para não confundir quem digita.
+    const letras = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const n = new Uint32Array(10);
+    crypto.getRandomValues(n);
+    return Array.from(n, (x) => letras[x % letras.length]).join("");
+  }
+
+  async function copiar(texto, botao) {
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      const t = document.createElement("textarea");
+      t.value = texto;
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand("copy");
+      t.remove();
+    }
+    if (botao) {
+      const antes = botao.textContent;
+      botao.textContent = "Copiado!";
+      setTimeout(() => (botao.textContent = antes), 1500);
+    }
+  }
+
+  function definirSenhaDeOutro(id, email, nome) {
+    const site = location.origin + location.pathname;
     janela(
       `<h2>Definir senha</h2>
-       <p>Nova senha de <b>${esc(email)}</b>. Depois é só passar o e-mail e essa senha para a pessoa entrar.</p>
-       <form>
-         <label>Senha<input type="text" name="senha" minlength="8" required autocomplete="off" spellcheck="false"></label>
-         <p class="muted">Mínimo de 8 caracteres. A pessoa pode trocar depois em "Trocar senha".</p>
+       <p>Nova senha de acesso para <b>${esc(nome || email)}</b> (${esc(email)}).</p>
+       <form autocomplete="off">
+         <label>Senha
+           <span class="senha-linha">
+             <input type="text" name="senha" minlength="8" required autocomplete="off" spellcheck="false" data-lpignore="true">
+             <button type="button" class="btn-sec" id="gerar">Gerar</button>
+           </span>
+         </label>
+         <p class="muted">Mínimo de 8 caracteres. Clique em <b>Gerar</b> para criar uma senha segura. A pessoa pode trocar depois em "Trocar senha".</p>
          <p class="erro" hidden></p>
          <div class="acoes-form"><button type="button" class="btn-sec" data-fechar>Cancelar</button><button class="btn">Salvar senha</button></div>
        </form>`,
       (m, fechar) => {
         const f = $("form", m);
+        const campo = f.senha;
+        $("#gerar", m).onclick = () => {
+          campo.value = gerarSenha();
+          campo.focus();
+          campo.select();
+        };
+        campo.focus();
         f.onsubmit = async (e) => {
           e.preventDefault();
+          const senha = campo.value.trim();
+          if (senha.length < 8) return mostrarErro($(".erro", m), "A senha precisa ter pelo menos 8 caracteres.");
           ocupado(f, true);
-          const r = await chamarEquipe({ acao: "definir_senha", id, senha: f.senha.value });
+          const r = await chamarEquipe({ acao: "definir_senha", id, senha });
           ocupado(f, false);
           if (r.erro) return mostrarErro($(".erro", m), r.erro);
-          fechar();
-          aviso(`Senha salva. ${email} já pode entrar.`);
+          // Mostra o acesso pronto para copiar e mandar à pessoa.
+          const acesso = `Acesso à Tramitação CS\nSite: ${site}\nE-mail: ${email}\nSenha: ${senha}`;
+          m.innerHTML = `<h2>Senha salva ✅</h2>
+            <p><b>${esc(nome || email)}</b> já pode entrar com estes dados:</p>
+            <div class="acesso-pronto">
+              <div><span>Site</span><b>${esc(site)}</b></div>
+              <div><span>E-mail</span><b>${esc(email)}</b></div>
+              <div><span>Senha</span><b class="mono">${esc(senha)}</b></div>
+            </div>
+            <p class="muted">Copie e envie para a pessoa (WhatsApp, por exemplo). Essa senha não aparece de novo.</p>
+            <div class="acoes-form"><button class="btn-sec" id="fecharAcesso">Fechar</button><button class="btn" id="copiarAcesso">Copiar acesso</button></div>`;
+          $("#fecharAcesso", m).onclick = fechar;
+          $("#copiarAcesso", m).onclick = (ev) => copiar(acesso, ev.currentTarget);
+          $("#copiarAcesso", m).focus();
         };
       }
     );
@@ -1455,9 +1508,9 @@
           .map(
             (p) => `<tr><td>${esc(p.nome)}</td><td>${esc(p.email)}</td>
             <td><select data-perfil="${p.id}" ${p.id === usuario.id ? "disabled title='Você não pode mudar a sua própria permissão'" : ""}>${ops(p.papel)}</select></td>
-            <td class="acoes-pessoa"><button class="link" data-definir="${p.id}" data-email="${esc(p.email)}">Definir senha</button>
+            <td><div class="acoes-pessoa"><button class="link" data-definir="${p.id}" data-email="${esc(p.email)}" data-nome="${esc(p.nome)}">Definir senha</button>
             <button class="link" data-senha="${p.id}" data-email="${esc(p.email)}">Link de nova senha</button>
-            ${p.id === usuario.id ? "" : `<button class="link perigo" data-remover="${p.id}" data-nome="${esc(p.nome)}">Remover acesso</button>`}</td></tr>`
+            ${p.id === usuario.id ? "" : `<button class="link perigo" data-remover="${p.id}" data-nome="${esc(p.nome)}">Remover acesso</button>`}</div></td></tr>`
           )
           .join("")}</tbody>
       </table></div>`;
@@ -1475,7 +1528,7 @@
       mostrarErro(erro, `Convite enviado para ${f.email.value.trim()}.`, true);
       setTimeout(paginaEquipe, 1800);
     };
-    $$("[data-definir]").forEach((b) => b.addEventListener("click", () => definirSenhaDeOutro(b.dataset.definir, b.dataset.email)));
+    $$("[data-definir]").forEach((b) => b.addEventListener("click", () => definirSenhaDeOutro(b.dataset.definir, b.dataset.email, b.dataset.nome)));
     $$("[data-senha]").forEach((b) =>
       b.addEventListener("click", async () => {
         b.disabled = true;
