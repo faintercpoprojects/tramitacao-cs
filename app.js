@@ -533,7 +533,7 @@
       if (entraNaConta(t)) {
         b.base++;
         for (const d of Object.keys(PEND_DOCS)) if (situacaoDoc(t, d) === "execucao") b[d]++;
-        if (formularios(t).n) b.form++;
+        b.form += formularios(t).n;
       }
     }
     const proxModulos = Object.values(blocos).sort((a, b) => a.data.localeCompare(b.data) || a.grupo.localeCompare(b.grupo));
