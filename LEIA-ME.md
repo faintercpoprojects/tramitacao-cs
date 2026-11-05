@@ -13,6 +13,19 @@ Substitui o uso direto da planilha `Tramitação.xlsx` (que continua funcionando
 - **Atualizações**: tudo que a equipe mudou, no site ou na planilha.
 - **Equipe** (só administrador): convidar, mudar permissão, definir senha, remover.
 
+## Regra de pendências (definida pelo time de CS em 05/11/2026)
+
+**Leads não entram em nenhuma conta.** Só estas colunas da planilha decidem:
+
+| Documento | Coluna | Concluído | Em execução (pendência) |
+|---|---|---|---|
+| CPF | U · Protocolo | tem o número do CPF (11 dígitos) | sem o número |
+| RNM | AF · Agendamiento | OK | Pendiente |
+| CRO | AT · Certificado enviado | OK | Pendiente |
+| Formulários | AA (Protocolo RNM) + AD (Dec. pesquisa) + AE (Dec. ausencia) | AA com número e AD/AE OK | cada coluna Pendiente = 1 formulário pendente |
+
+Aparece no Painel (bloco "Pendências" e tabela de próximos módulos), em Turmas, na Pesquisa e no filtro **Pendência** da lista de Alunos. Os chips de etapas (ex.: "CRO 3/14") continuam mostrando o detalhe das etapas.
+
 Permissões: **Visualizador** (só vê/exporta) · **Editor** (altera) · **Administrador** (altera e cuida da equipe).
 
 ## Onde fica
